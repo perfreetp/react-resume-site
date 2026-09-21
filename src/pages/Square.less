@@ -3,6 +3,65 @@
   min-height: calc(100vh - 30px);
   background-color: #f0f9ff;
   display: flex;
+  flex-direction: column;
+}
+
+.square-toolbar {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  .square-search {
+    width: 260px;
+    margin-right: 20px;
+  }
+  .square-filters {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    .square-filter {
+      padding: 4px 14px;
+      margin: 4px 8px 4px 0;
+      border-radius: 14px;
+      font-size: 13px;
+      color: #46505a;
+      background: #fff;
+      cursor: pointer;
+      border: 1px solid #e0e6ed;
+      &.active {
+        color: #fff;
+        background: #00c091;
+        border-color: #00c091;
+      }
+    }
+  }
+}
+
+.square-list {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.square-empty {
+  width: 100%;
+  text-align: center;
+  color: #999;
+  padding: 60px 0;
+}
+
+.square-fav {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2;
+  font-size: 20px;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  &.faved {
+    color: #f7ba2a;
+  }
 }
 
 .rs-square {

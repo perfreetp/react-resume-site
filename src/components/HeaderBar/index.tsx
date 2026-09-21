@@ -13,25 +13,28 @@ import {
 import htmlParser from 'rs-md-html-parser';
 import "./index.less";
 import { getTheme } from "@utils/changeThemes";
-import { downloadDirect, downloadFetch, markdownParserArticle } from "@utils/helper";
+import { downloadByContent, downloadDirect, downloadFetch, markdownParserArticle, copyText } from "@utils/helper";
 import { getPdf } from "@src/service/htmlToPdf";
 import { useStores } from "@src/store";
-import { mdEditorRef, globalEditorCount, updateTempalte, renderViewStyle } from "@src/utils/global";
+import { mdEditorRef, globalEditorCount, updateTempalte, renderViewStyle, switchResume } from "@src/utils/global";
 import { TUTORIALS_GUIDE, LOCAL_STORE, UPDATE_CONTENT, UPDATE_LOG_VERSION } from '@src/utils/const';
 import { observer } from "mobx-react";
 import { themes } from '@utils/const';
 import Shortcuts from "@src/components/Shortcuts";
 import History from "@src/components/History";
+import ResumeSwitcher from "@src/components/ResumeSwitcher";
+import { createShareLink } from "@src/utils/share";
 
 const is_update = +(localStorage.getItem(LOCAL_STORE.MD_UPDATE_LOG) || 0) >= UPDATE_LOG_VERSION ? false : true;
 
 const HeaderBar = observer(() => {
-  const { templateStore } = useStores();
+  const { templateStore, resumeStore } = useStores();
   const { setTempTheme , tempTheme, theme, color, setColor, setTheme, setPreview, mdContent, isPreview } = templateStore;
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [isExportVisible, setIsExportVisible] = useState(false);
   const [isUsageVisible, setIsUsageVisible] = useState(false);
   const [isUpdateVisible, setIsUpdateVisible] = useState(is_update);
+  const [shareLink, setShareLink] = useState("");
 
   const formRef = useRef<FormInstance>(null);
 
@@ -40,28 +43,89 @@ const HeaderBar = observer(() => {
     await updateTempalte(tempTheme, color, setColor);
     // 设置模板
     setTheme(tempTheme);
+    // 持久化到当前简历
+    resumeStore.saveActive();
     // 关闭弹窗
     setIsModalVisible(false);
   };
 
-  const uploadMdFile = useCallback((e: any) => {
+  const uploadFile = useCallback((e: any) => {
     let resultFile = e.target.files[0];
+    if (!resultFile) {
+      return;
+    }
     var reader = new FileReader();
     reader.readAsText(resultFile);
     reader.onload = (e) => {
-      if (e.target?.result) {
-        mdEditorRef && (mdEditorRef.setValue(e.target.result));
-        setPreview(false);
-        renderViewStyle(color);
+      const text = e.target?.result;
+      if (typeof text !== "string") {
+        return;
       }
+      if (/\.json$/i.test(resultFile.name)) {
+        // JSON 备份：新建一份简历并完整还原正文与主题配置
+        try {
+          const backup = JSON.parse(text);
+          if (backup && backup.type === "muji-resume-backup" && typeof backup.content === "string") {
+            resumeStore.saveActive();
+            const record = resumeStore.createResume({
+              name: backup.name || undefined,
+              content: backup.content,
+              theme: backup.theme,
+              color: backup.color,
+            });
+            switchResume(record.id, resumeStore, templateStore);
+            message.success("备份导入成功，已还原为新简历");
+          } else {
+            message.error("备份文件格式不正确");
+          }
+        } catch (err) {
+          message.error("备份文件解析失败");
+        }
+        return;
+      }
+      // Markdown：导入到当前简历
+      mdEditorRef && (mdEditorRef.setValue(text));
+      templateStore.setMdContent(text);
+      resumeStore.saveActive({ content: text });
+      setPreview(false);
+      renderViewStyle(color);
     };
-  }, []);
+    e.target.value = "";
+  }, [color, resumeStore, templateStore, setPreview]);
 
   const exportMdFile = useCallback(() => {
     const file = new Blob([mdContent]);
     const url = URL.createObjectURL(file);
     downloadDirect(url, "木及简历.md");
   }, [mdContent]);
+
+  const exportJsonBackup = useCallback(() => {
+    resumeStore.saveActive();
+    const active = resumeStore.activeResume;
+    const backup = {
+      type: "muji-resume-backup",
+      version: 1,
+      name: active?.name || "我的简历",
+      content: mdContent,
+      theme,
+      color,
+      exportedAt: Date.now(),
+    };
+    downloadByContent(JSON.stringify(backup, null, 2), `${backup.name}.json`, "application/json");
+    message.success("JSON 备份已导出");
+  }, [mdContent, theme, color, resumeStore]);
+
+  const handleShare = useCallback(() => {
+    resumeStore.saveActive();
+    const active = resumeStore.activeResume;
+    const link = createShareLink({
+      name: active?.name || "我的简历",
+      content: mdContent,
+      theme,
+      color,
+    });
+    setShareLink(link);
+  }, [mdContent, theme, color, resumeStore]);
 
   const templateContent = (
     <div className="template-wrapper">
@@ -88,20 +152,25 @@ const HeaderBar = observer(() => {
   const filesMenu = (
     <Menu>
       <Menu.Item>
-        <label htmlFor="uploadMdFile">
-          <a rel="noopener noreferrer">导入md</a>
+        <label htmlFor="uploadResumeFile">
+          <a rel="noopener noreferrer">导入md / JSON备份</a>
           <input
             type="file"
-            id="uploadMdFile"
-            accept=".md"
+            id="uploadResumeFile"
+            accept=".md,.json"
             className="uploadMd"
-            onChange={uploadMdFile}
+            onChange={uploadFile}
           ></input>
         </label>
       </Menu.Item>
       <Menu.Item>
         <a rel="noopener noreferrer" onClick={exportMdFile}>
           导出md
+        </a>
+      </Menu.Item>
+      <Menu.Item>
+        <a rel="noopener noreferrer" onClick={exportJsonBackup}>
+          导出JSON备份
         </a>
       </Menu.Item>
     </Menu>
@@ -175,6 +244,7 @@ const HeaderBar = observer(() => {
   return (
     <div className="rs-header-bar rs-link">
       <div className="rs-header-bar__left">
+        <ResumeSwitcher></ResumeSwitcher>
         {/* <a className="rs-logo rs-link">
           <img src="https://s3.qiufeng.blue/muji/muji-logo.jpg" alt=""/>
           木及简历
@@ -202,6 +272,16 @@ const HeaderBar = observer(() => {
         <a
           href="#"
           className="rs-link"
+          onClick={(e) => {
+            e.preventDefault();
+            handleShare();
+          }}
+        >
+          分享
+        </a>
+        <a
+          href="#"
+          className="rs-link"
           onClick={() => {
             setIsExportVisible(true);
           }}
@@ -209,6 +289,28 @@ const HeaderBar = observer(() => {
           导出 pdf
         </a>
       </div>
+      <Modal
+        title="只读分享"
+        visible={!!shareLink}
+        onCancel={() => setShareLink("")}
+        footer={null}
+        width={640}
+      >
+        <p>以下链接已加密简历正文与主题配置，打开链接的人只能查看，不能编辑：</p>
+        <Input.TextArea value={shareLink} readOnly autoSize={{ minRows: 3, maxRows: 6 }} />
+        <div style={{ marginTop: 16, textAlign: "right" }}>
+          <span
+            className="btn btn-normal"
+            onClick={() => {
+              copyText(shareLink, () => {
+                message.success("链接已复制");
+              });
+            }}
+          >
+            复制链接
+          </span>
+        </div>
+      </Modal>
       <Modal
         title="请选择模板"
         visible={isModalVisible}

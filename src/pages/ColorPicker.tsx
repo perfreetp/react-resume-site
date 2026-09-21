@@ -6,7 +6,7 @@ import { LOCAL_STORE } from '@utils/const';
 import "./ColorPicker.less";
 
 const PickerColor = () => {
-  const { templateStore } = useStores();
+  const { templateStore, resumeStore } = useStores();
   const [displayPick, setDisplayPicker] = useState(false);
 
   const collapse =(e:any) => {
@@ -24,6 +24,7 @@ const PickerColor = () => {
       { displayPick && <ChromePicker color={templateStore.color} onChangeComplete={(color) => {
         templateStore.setColor(color.hex);
         localStorage.setItem(LOCAL_STORE.MD_COLOR, color.hex);
+        resumeStore.saveActive({ color: color.hex });
         document.body.style.setProperty('--bg', color.hex);
         // setDisplayPicker(false);
       }}></ChromePicker>}

@@ -1,19 +1,20 @@
 import { makeAutoObservable } from "mobx";
-import { INIT_COLOR, INIT_CONTENT, LOCAL_STORE, themes } from '@utils/const';
-
-const default_theme = localStorage.getItem(LOCAL_STORE.MD_THEME) || themes[0].id;
-
-const localContent = localStorage.getItem(LOCAL_STORE.MD_RESUME);
+import { INIT_COLOR, INIT_CONTENT, themes } from '@utils/const';
 
 class TemplateStore {
-	theme = default_theme;
-	tempTheme = default_theme;
-	color = INIT_COLOR;
-	mdContent = localContent || INIT_CONTENT;
+	theme: string;
+	tempTheme: string;
+	color: string;
+	mdContent: string;
 	html = '';
 	isPreview = false;
 
-	constructor() {
+	constructor(resumeStore?: any) {
+		const active = resumeStore?.activeResume;
+		this.theme = active?.theme || themes[0].id;
+		this.tempTheme = this.theme;
+		this.color = active?.color || INIT_COLOR;
+		this.mdContent = active?.content || INIT_CONTENT;
 		makeAutoObservable(this);
 	}
 

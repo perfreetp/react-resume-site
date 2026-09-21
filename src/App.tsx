@@ -10,6 +10,7 @@ import "./themes/common.less";
 import HeaderBar from "./components/HeaderBar/index";
 import HeaderCommonBar from "./components/HeaderCommonBar/index";
 import Square from "./pages/Square";
+import ShareView from "./pages/ShareView";
 import "@src/utils/window-event";
 
 function App() {
@@ -29,6 +30,9 @@ function App() {
             <div className="rs-body">
               <Square></Square>
             </div>
+          </Route>
+          <Route path="/share">
+            <ShareView></ShareView>
           </Route>
         </Switch>
       </Router>

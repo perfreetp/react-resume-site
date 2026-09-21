@@ -2,7 +2,8 @@ import React, { useCallback } from "react";
 import CodeMirror, { IEditorInstance } from "@uiw/react-codemirror";
 import debounce from "lodash-es/debounce";
 import { useStores } from "@src/store";
-import { setMdHistory, setMdEditorRef, globalEditorCountIncrease, globalEditorCount, setHtmlView } from "@src/utils/global";
+import { setMdEditorRef, globalEditorCountIncrease, globalEditorCount, setHtmlView } from "@src/utils/global";
+import { addSnapshot } from "@src/utils/snapshot";
 import { LOCAL_STORE } from '@src/utils/const';
 import { observer } from "mobx-react";
 import "./Editor.less"
@@ -12,7 +13,7 @@ type TimerSave = number | null;
 let timerSave: TimerSave = null;
 
 const Editor: React.FC = observer(() => {
-  const { templateStore } = useStores();
+  const { templateStore, resumeStore } = useStores();
   const { isPreview, mdContent, setHtml } = templateStore;
 
   const setRefCallback = useCallback((node: IEditorInstance) => {
@@ -52,12 +53,12 @@ const Editor: React.FC = observer(() => {
           timerSave = window.setTimeout(() => {
             const content = editor.getValue();
             templateStore.setMdContent(content);
-            localStorage.setItem(LOCAL_STORE.MD_RESUME, content);
-            setMdHistory({
+            resumeStore.saveActive({ content });
+            addSnapshot(resumeStore.activeId, {
               theme,
               color,
               md: content
-            })
+            });
             if (timerSave) {
               clearTimeout(timerSave);
               timerSave = null;
