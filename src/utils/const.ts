@@ -41,6 +41,9 @@ export const LOCAL_STORE = {
   MD_THEME_LIST: "md-theme-list",
   MD_UPDATE_LOG: "md-update-log",
   MD_HISTORY: "md-history",
+  MD_RESUME_LIST: "md-resume-list",
+  MD_SNAPSHOTS: "md-snapshots",
+  MD_TEMPLATE_FAVS: "md-template-favs",
 };
 
 export const INIT_COLOR =

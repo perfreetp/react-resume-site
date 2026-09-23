@@ -1,11 +1,11 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { Modal, Tag, Popconfirm } from "antd";
+import { Modal, Tag, Input, Select, Checkbox, Empty, message } from "antd";
 import dayjs from 'dayjs';
 import { downloadDirect } from "@utils/helper";
-import { mdEditorRef, renderViewStyle } from "@src/utils/global";
+import { activateResume } from "@src/utils/global";
 import { useStores } from "@src/store";
 import { LOCAL_STORE, themes } from '@src/utils/const';
-import { getTheme } from "@utils/changeThemes";
+import { createResume } from '@utils/resume';
 import "./Square.less";
 import axios from 'axios';
 
@@ -22,49 +22,56 @@ export interface TemplateItem {
   updateTime: number;
 }
 
-// const list = []
+function loadFavs(): number[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORE.MD_TEMPLATE_FAVS);
+    const favs = raw ? JSON.parse(raw) : [];
+    return Array.isArray(favs) ? favs : [];
+  } catch (e) {
+    return [];
+  }
+}
 
 const Square = () => {
   const { globalStore: { setCurTab }} = useStores();
   const [list, setList] = useState<TemplateItem[]>([]);
   const { templateStore } = useStores();
-  const { setColor, setMdContent, setTheme } = templateStore;
   const [template, setTemplate] = useState<TemplateItem | null>(null);
+  const [keyword, setKeyword] = useState('');
+  const [themeFilter, setThemeFilter] = useState('all');
+  const [onlyFav, setOnlyFav] = useState(false);
+  const [favs, setFavs] = useState<number[]>(loadFavs());
 
   const handleCancel = useCallback(() => {
     setTemplate(null);
   }, []);
 
-  const handleUse = useCallback(() => {
+  const toggleFav = useCallback((id: number) => {
+    setFavs((prev) => {
+      const next = prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id];
+      localStorage.setItem(LOCAL_STORE.MD_TEMPLATE_FAVS, JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
+  // 使用模板：新建一份简历，而不是覆盖当前编辑内容
+  const handleUse = useCallback(async () => {
     if (template) {
-      const { theme, themeColor, template : md } = template;
-      // 设置主题
-      setTheme(theme);
-      localStorage.setItem(LOCAL_STORE.MD_THEME, theme);
-      // 设置颜色 
-      setColor(themeColor);
-      localStorage.setItem(LOCAL_STORE.MD_COLOR, themeColor);
-      // 设置内容
-      setMdContent(md)
-      // 持久化设置
-      localStorage.setItem(LOCAL_STORE.MD_RESUME, md);
+      const { theme, themeColor, template: md, title } = template;
+      const resume = createResume({
+        name: title,
+        md,
+        theme,
+        color: themeColor,
+      });
+      await activateResume(resume, templateStore);
+      message.success(`已基于模板新建简历「${resume.name}」`);
+      setTemplate(null);
       // 跳转
       window.location.href = '#/';
-      setCurTab('#/')
-      // 临时设置
-      setTimeout(async () => {
-        // 设置编辑器内容
-        mdEditorRef && (mdEditorRef.setValue(md));
-        // 拉取主题
-        await getTheme(theme);
-        document.body.style.setProperty("--bg", themeColor);
-        // 设置 html 渲染
-        renderViewStyle(themeColor)
-      }, 300);
+      setCurTab('#/');
     }
-    
-  }, [template, setColor]);
+  }, [template, templateStore, setCurTab]);
 
   useEffect(() => {
     const queryTemplate = async () => {
@@ -75,27 +82,70 @@ const Square = () => {
     queryTemplate();
   }, [])
 
+  const filteredList = list.filter((item) => {
+    const kw = keyword.trim().toLowerCase();
+    const matchKeyword = !kw || item.title.toLowerCase().includes(kw) || (item.author || '').toLowerCase().includes(kw);
+    const matchTheme = themeFilter === 'all' || item.theme === themeFilter;
+    const matchFav = !onlyFav || favs.includes(item.id);
+    return matchKeyword && matchTheme && matchFav;
+  });
+
   return (
-    <div className="rs-square-container">
-      {list.map((item) => {
-        return (
-          <div className="rs-square" key={item.id}>
-            <div className="rs-square-bg"></div>
-            <div
-              className="rs-square-btn"
-              onClick={() => {
-                setTemplate(item);
-              }}
-            >
-              查看模板
+    <div className="rs-square-wrapper">
+      <div className="rs-square-toolbar">
+        <Input.Search
+          className="rs-square-search"
+          placeholder="搜索模板名称 / 作者"
+          allowClear
+          onChange={(e) => setKeyword(e.target.value)}
+          onSearch={(value) => setKeyword(value)}
+        />
+        <Select
+          className="rs-square-theme-filter"
+          value={themeFilter}
+          onChange={(value) => setThemeFilter(value)}
+        >
+          <Select.Option value="all">全部主题</Select.Option>
+          {themes.map((item) => (
+            <Select.Option key={item.id} value={item.id}>{item.name}</Select.Option>
+          ))}
+        </Select>
+        <Checkbox checked={onlyFav} onChange={(e) => setOnlyFav(e.target.checked)}>
+          只看收藏
+        </Checkbox>
+      </div>
+      <div className="rs-square-container">
+        {filteredList.length === 0 && (
+          <Empty description="没有符合条件的模板" style={{ margin: '60px auto' }} />
+        )}
+        {filteredList.map((item) => {
+          const isFav = favs.includes(item.id);
+          return (
+            <div className="rs-square" key={item.id}>
+              <div className="rs-square-bg"></div>
+              <div
+                className="rs-square-btn"
+                onClick={() => {
+                  setTemplate(item);
+                }}
+              >
+                查看模板
+              </div>
+              <span
+                className={`rs-square-fav ${isFav ? 'active' : ''}`}
+                title={isFav ? '取消收藏' : '收藏'}
+                onClick={() => toggleFav(item.id)}
+              >
+                {isFav ? '★' : '☆'}
+              </span>
+              <img src={item.thumbnail} alt="" />
+              <div className="rs-userInfo">
+                <span>{item.title}</span>
+              </div>
             </div>
-            <img src={item.thumbnail} alt="" />
-            <div className="rs-userInfo">
-              <span>{item.title}</span>
-            </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
       {template && (
         <Modal
           bodyStyle={{
@@ -112,14 +162,13 @@ const Square = () => {
                 const url = URL.createObjectURL(file);
                 downloadDirect(url, `${template.title}.md`);
               }}>下载md</span>
-              <Popconfirm
-                title="确定使用此模板替换你当前编辑器中的内容吗?"
-                onConfirm={handleUse}
-                okText="决定了"
-                cancelText="再想想"
+              <span
+                className="btn btn-normal mr20"
+                onClick={() => toggleFav(template.id)}
               >
-                <span className="btn btn-normal mr20">使用模板</span>
-              </Popconfirm>
+                {favs.includes(template.id) ? '取消收藏' : '收藏'}
+              </span>
+              <span className="btn btn-normal mr20" onClick={handleUse}>使用模板（新建简历）</span>
             </div>
           }
         >

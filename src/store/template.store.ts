@@ -1,15 +1,17 @@
 import { makeAutoObservable } from "mobx";
-import { INIT_COLOR, INIT_CONTENT, LOCAL_STORE, themes } from '@utils/const';
+import { getCurrentResume, updateResume, ResumeMeta } from '@utils/resume';
 
-const default_theme = localStorage.getItem(LOCAL_STORE.MD_THEME) || themes[0].id;
+const currentResume = getCurrentResume();
 
-const localContent = localStorage.getItem(LOCAL_STORE.MD_RESUME);
+document.body.style.setProperty("--bg", currentResume.color);
 
 class TemplateStore {
-	theme = default_theme;
-	tempTheme = default_theme;
-	color = INIT_COLOR;
-	mdContent = localContent || INIT_CONTENT;
+	resumeId = currentResume.id;
+	resumeName = currentResume.name;
+	theme = currentResume.theme;
+	tempTheme = currentResume.theme;
+	color = currentResume.color;
+	mdContent = currentResume.md;
 	html = '';
 	isPreview = false;
 
@@ -28,18 +30,31 @@ class TemplateStore {
 
 	setTheme = (theme: string) => {
 		this.theme = theme;
+		updateResume(this.resumeId, { theme });
 	}
 
 	setColor = (color: string) => {
 		this.color = color;
+		updateResume(this.resumeId, { color });
 	};
 
 	setMdContent = (content: string) => {
 		this.mdContent = content;
+		updateResume(this.resumeId, { md: content });
 	}
 
 	setHtml = (value: string) => {
 		this.html = value;
+	}
+
+	// 加载一份简历到编辑器（不触发额外持久化）
+	loadResume = (resume: ResumeMeta) => {
+		this.resumeId = resume.id;
+		this.resumeName = resume.name;
+		this.theme = resume.theme;
+		this.tempTheme = resume.theme;
+		this.color = resume.color;
+		this.mdContent = resume.md;
 	}
 }
 

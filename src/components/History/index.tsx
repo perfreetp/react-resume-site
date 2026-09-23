@@ -1,44 +1,65 @@
-import React, { useState } from 'react';
-import { Modal, List, Tag, Popconfirm } from 'antd';
-import { LOCAL_STORE } from '@src/utils/const';
+import React, { useState, useEffect } from 'react';
+import { Modal, List, Tag, Popconfirm, Empty, message } from 'antd';
 import dayjs from 'dayjs';
-import { HistoryLocalInfo } from '@src/utils/global';
-import { mdEditorRef, renderViewStyle } from "@src/utils/global";
-import { useStores } from "@src/store";
-import { getTheme } from "@utils/changeThemes";
-import "./index.less";
+import axios from 'axios';
+import { observer } from 'mobx-react';
+import { Snapshot, loadSnapshots, deleteSnapshot } from '@utils/resume';
+import { mdEditorRef, renderMdToHtml } from '@src/utils/global';
+import { useStores } from '@src/store';
+import { getTheme } from '@utils/changeThemes';
+import './index.less';
 
-
-const History = () => {
-  const localData = localStorage.getItem(LOCAL_STORE.MD_HISTORY);
-  const data: HistoryLocalInfo[] = JSON.parse(localData || "[]").reverse() || [];
+const History = observer(() => {
   const { templateStore } = useStores();
-  const { setPreview, setTheme, setMdContent, setColor } = templateStore;
-  const handleSelect = (md: string, theme: string, color: string) => {
-    // 设置主题
-    setTheme(theme);
-    localStorage.setItem(LOCAL_STORE.MD_THEME, theme);
-    // 设置颜色 
-    setColor(color);
-    localStorage.setItem(LOCAL_STORE.MD_COLOR, color);
-    // 设置内容
-    setMdContent(md)
-    // 持久化设置
-    localStorage.setItem(LOCAL_STORE.MD_RESUME, md);
-    // 临时设置
-    setTimeout(async () => {
-      // 设置编辑器内容
-      mdEditorRef && (mdEditorRef.setValue(md));
-      // 拉取主题
-      await getTheme(theme);
-      document.body.style.setProperty("--bg", color);
-      // 设置 html 渲染
-      renderViewStyle(color)
-    }, 300);
+  const [visible, setVisible] = useState(false);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [preview, setPreview] = useState<Snapshot | null>(null);
+  const [previewCss, setPreviewCss] = useState('');
 
-    setPreview(false);
-  }
-  const [ visible, setVisible ] = useState(false);
+  const refresh = () => {
+    setSnapshots(loadSnapshots(templateStore.resumeId));
+  };
+
+  useEffect(() => {
+    if (visible) {
+      refresh();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, templateStore.resumeId]);
+
+  const handlePreview = async (item: Snapshot) => {
+    setPreview(item);
+    try {
+      const result = await axios.get(`/themes/${item.theme}.css`);
+      // 将主题样式作用域限定在预览容器内，避免影响当前编辑器
+      setPreviewCss(String(result.data).replace(/\.rs-view/g, '.snapshot-preview-view'));
+    } catch (e) {
+      setPreviewCss('');
+    }
+  };
+
+  const handleRestore = async (item: Snapshot) => {
+    const { md, theme, color } = item;
+    // 更新 store（内部持久化到当前简历）
+    templateStore.setTheme(theme);
+    templateStore.setColor(color);
+    templateStore.setMdContent(md);
+    templateStore.setPreview(false);
+    // 同步编辑器与视图
+    mdEditorRef && mdEditorRef.setValue(md);
+    await getTheme(theme);
+    document.body.style.setProperty('--bg', color);
+    templateStore.setHtml(renderMdToHtml(md, color));
+    setVisible(false);
+    message.success('已恢复到该版本');
+  };
+
+  const handleDelete = (item: Snapshot) => {
+    deleteSnapshot(templateStore.resumeId, item.id);
+    refresh();
+    message.success('快照已删除');
+  };
+
   return (
     <>
       <a
@@ -48,51 +69,87 @@ const History = () => {
           setVisible(true);
         }}
       >
-        历史记录
+        版本快照
       </a>
       <Modal
-        title="历史记录"
+        title={`版本快照（${templateStore.resumeName}）`}
         visible={visible}
         onCancel={() => {
           setVisible(false);
         }}
         footer={null}
         width={1100}
-        >
-        <List
-          className="history-list"
-          itemLayout="horizontal"
-          dataSource={data}
-          renderItem={item => (
-            <List.Item
-              actions={[
-                <Popconfirm
-                  title="确定使用此版本替换你当前编辑器中的内容吗?"
-                  onConfirm={() => {
-                    const { md, theme, color } = item;
-                    handleSelect(md, theme, color);
-                    setVisible(false);
-                  }}
-                  okText="决定了"
-                  cancelText="再想想"
-                >
-                  <span className="btn btn-normal mr20">选择</span>
-                </Popconfirm>
-              ]}
-            >
-              <List.Item.Meta
-                avatar={""}
-                title={dayjs(item.time).format('YYYY-MM-DD HH:mm:ss')}
-                description={item.md.slice(0, 800) + '...'}
-              />
-              <span className="hist">{ item.theme }</span>
-              <Tag color={item.color}>{item.color}</Tag>
-            </List.Item>
-          )}
-          ></List>
+      >
+        {snapshots.length === 0 ? (
+          <Empty description="暂无快照，编辑内容后会自动保存版本快照" />
+        ) : (
+          <List
+            className="history-list"
+            itemLayout="horizontal"
+            dataSource={snapshots}
+            renderItem={(item) => (
+              <List.Item
+                actions={[
+                  <span
+                    key="preview"
+                    className="btn btn-normal mr20"
+                    onClick={() => handlePreview(item)}
+                  >
+                    预览
+                  </span>,
+                  <Popconfirm
+                    key="restore"
+                    title="恢复该版本将覆盖当前简历内容，确定恢复吗？"
+                    onConfirm={() => handleRestore(item)}
+                    okText="恢复"
+                    cancelText="取消"
+                  >
+                    <span className="btn btn-normal mr20">恢复</span>
+                  </Popconfirm>,
+                  <Popconfirm
+                    key="delete"
+                    title="确定删除该快照吗？"
+                    onConfirm={() => handleDelete(item)}
+                    okText="删除"
+                    cancelText="取消"
+                  >
+                    <span className="btn btn-normal mr20">删除</span>
+                  </Popconfirm>,
+                ]}
+              >
+                <List.Item.Meta
+                  avatar={''}
+                  title={dayjs(item.time).format('YYYY-MM-DD HH:mm:ss')}
+                  description={item.md.slice(0, 800) + '...'}
+                />
+                <span className="hist">{item.theme}</span>
+                <Tag color={item.color}>{item.color}</Tag>
+              </List.Item>
+            )}
+          />
+        )}
+      </Modal>
+      <Modal
+        title={`快照预览 - ${preview ? dayjs(preview.time).format('YYYY-MM-DD HH:mm:ss') : ''}`}
+        visible={!!preview}
+        onCancel={() => setPreview(null)}
+        footer={null}
+        width={900}
+      >
+        {preview && (
+          <div className="snapshot-preview">
+            {previewCss && <style>{previewCss}</style>}
+            <div
+              className="snapshot-preview-view"
+              dangerouslySetInnerHTML={{
+                __html: renderMdToHtml(preview.md, preview.color),
+              }}
+            ></div>
+          </div>
+        )}
       </Modal>
     </>
-  )
-}
+  );
+});
 
 export default History;

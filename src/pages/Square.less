@@ -146,3 +146,36 @@
   text-align: center;
   width: 100%;
 }
+.rs-square-wrapper {
+  background-color: #f0f9ff;
+  min-height: calc(100vh - 30px);
+}
+.rs-square-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 20px 20px 0 20px;
+  .rs-square-search {
+    width: 260px;
+    margin-right: 16px;
+  }
+  .rs-square-theme-filter {
+    width: 160px;
+    margin-right: 16px;
+  }
+}
+.rs-square {
+  position: relative;
+  .rs-square-fav {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+    font-size: 22px;
+    color: #f5a623;
+    cursor: pointer;
+    text-shadow: 0 0 3px #fff;
+    &.active {
+      color: #f5a623;
+    }
+  }
+}

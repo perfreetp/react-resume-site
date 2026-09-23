@@ -13,15 +13,18 @@ import {
 import htmlParser from 'rs-md-html-parser';
 import "./index.less";
 import { getTheme } from "@utils/changeThemes";
-import { downloadDirect, downloadFetch, markdownParserArticle } from "@utils/helper";
+import { downloadDirect, downloadFetch, downloadByContent, markdownParserArticle, copyText } from "@utils/helper";
 import { getPdf } from "@src/service/htmlToPdf";
 import { useStores } from "@src/store";
-import { mdEditorRef, globalEditorCount, updateTempalte, renderViewStyle } from "@src/utils/global";
+import { mdEditorRef, globalEditorCount, updateTempalte, renderViewStyle, activateResume } from "@src/utils/global";
 import { TUTORIALS_GUIDE, LOCAL_STORE, UPDATE_CONTENT, UPDATE_LOG_VERSION } from '@src/utils/const';
+import { createResume } from "@utils/resume";
+import { buildShareLink } from "@utils/share";
 import { observer } from "mobx-react";
 import { themes } from '@utils/const';
 import Shortcuts from "@src/components/Shortcuts";
 import History from "@src/components/History";
+import ResumeManager from "@src/components/ResumeManager";
 
 const is_update = +(localStorage.getItem(LOCAL_STORE.MD_UPDATE_LOG) || 0) >= UPDATE_LOG_VERSION ? false : true;
 
@@ -32,6 +35,8 @@ const HeaderBar = observer(() => {
   const [isExportVisible, setIsExportVisible] = useState(false);
   const [isUsageVisible, setIsUsageVisible] = useState(false);
   const [isUpdateVisible, setIsUpdateVisible] = useState(is_update);
+  const [isShareVisible, setIsShareVisible] = useState(false);
+  const [shareLink, setShareLink] = useState('');
 
   const formRef = useRef<FormInstance>(null);
 
@@ -46,22 +51,83 @@ const HeaderBar = observer(() => {
 
   const uploadMdFile = useCallback((e: any) => {
     let resultFile = e.target.files[0];
+    if (!resultFile) {
+      return;
+    }
     var reader = new FileReader();
     reader.readAsText(resultFile);
-    reader.onload = (e) => {
-      if (e.target?.result) {
-        mdEditorRef && (mdEditorRef.setValue(e.target.result));
+    reader.onload = (ev) => {
+      if (ev.target?.result) {
+        mdEditorRef && (mdEditorRef.setValue(ev.target.result));
         setPreview(false);
         renderViewStyle(color);
       }
     };
-  }, []);
+    e.target.value = '';
+  }, [color, setPreview]);
+
+  const uploadJsonFile = useCallback((e: any) => {
+    const resultFile = e.target.files[0];
+    if (!resultFile) {
+      return;
+    }
+    const reader = new FileReader();
+    reader.readAsText(resultFile);
+    reader.onload = async (ev) => {
+      try {
+        const backup = JSON.parse(String(ev.target?.result || ''));
+        if (typeof backup.md !== 'string') {
+          throw new Error('invalid backup');
+        }
+        // 以新简历的方式完整还原备份内容
+        const resume = createResume({
+          name: backup.name ? `${backup.name}` : '导入的简历',
+          md: backup.md,
+          theme: backup.theme || themes[0].id,
+          color: backup.color || themes[0].defaultColor,
+        });
+        await activateResume(resume, templateStore);
+        message.success('JSON 备份导入成功，已还原为新简历');
+      } catch (err) {
+        message.error('导入失败，请选择有效的 JSON 备份文件');
+      }
+    };
+    e.target.value = '';
+  }, [templateStore]);
 
   const exportMdFile = useCallback(() => {
     const file = new Blob([mdContent]);
     const url = URL.createObjectURL(file);
-    downloadDirect(url, "木及简历.md");
-  }, [mdContent]);
+    downloadDirect(url, `${templateStore.resumeName || '木及简历'}.md`);
+  }, [mdContent, templateStore.resumeName]);
+
+  const exportJsonFile = useCallback(() => {
+    const backup = {
+      type: 'muji-resume-backup',
+      version: 1,
+      name: templateStore.resumeName,
+      md: templateStore.mdContent,
+      theme: templateStore.theme,
+      color: templateStore.color,
+      exportTime: Date.now(),
+    };
+    downloadByContent(
+      JSON.stringify(backup, null, 2),
+      `${templateStore.resumeName || '木及简历'}-备份.json`,
+      'application/json'
+    );
+  }, [templateStore]);
+
+  const handleShare = useCallback(() => {
+    const link = buildShareLink({
+      name: templateStore.resumeName,
+      md: templateStore.mdContent,
+      theme: templateStore.theme,
+      color: templateStore.color,
+    });
+    setShareLink(link);
+    setIsShareVisible(true);
+  }, [templateStore]);
 
   const templateContent = (
     <div className="template-wrapper">
@@ -100,8 +166,25 @@ const HeaderBar = observer(() => {
         </label>
       </Menu.Item>
       <Menu.Item>
+        <label htmlFor="uploadJsonFile">
+          <a rel="noopener noreferrer">导入JSON备份</a>
+          <input
+            type="file"
+            id="uploadJsonFile"
+            accept=".json"
+            className="uploadMd"
+            onChange={uploadJsonFile}
+          ></input>
+        </label>
+      </Menu.Item>
+      <Menu.Item>
         <a rel="noopener noreferrer" onClick={exportMdFile}>
-          导出md
+          导出Markdown
+        </a>
+      </Menu.Item>
+      <Menu.Item>
+        <a rel="noopener noreferrer" onClick={exportJsonFile}>
+          导出JSON备份
         </a>
       </Menu.Item>
     </Menu>
@@ -130,7 +213,7 @@ const HeaderBar = observer(() => {
     const pages = rsViewer.dataset.pages || '1';
     const rsLine = document.querySelectorAll('.rs-line-split');
     rsLine.forEach(item => item.parentNode?.removeChild(item));
-    const content = localStorage.getItem(LOCAL_STORE.MD_RESUME);
+    const content = templateStore.mdContent;
 
     if (content) {
       const htmlContent = document.querySelector('.rs-view-inner')?.innerHTML.replace(/(\n|\r)/g, "");
@@ -171,6 +254,7 @@ const HeaderBar = observer(() => {
 
   useEffect(() => {
     getTheme(theme);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
     <div className="rs-header-bar rs-link">
@@ -179,6 +263,7 @@ const HeaderBar = observer(() => {
           <img src="https://s3.qiufeng.blue/muji/muji-logo.jpg" alt=""/>
           木及简历
         </a> */}
+        <ResumeManager></ResumeManager>
         <Dropdown overlay={filesMenu} trigger={["click"]}>
           <a
             className="ant-dropdown-link rs-link"
@@ -199,6 +284,16 @@ const HeaderBar = observer(() => {
         </a>
         <Shortcuts></Shortcuts>
         <History></History>
+        <a
+          href="#"
+          className="rs-link"
+          onClick={(e) => {
+            e.preventDefault();
+            handleShare();
+          }}
+        >
+          分享
+        </a>
         <a
           href="#"
           className="rs-link"
@@ -259,6 +354,27 @@ const HeaderBar = observer(() => {
           __html: markdownParserArticle.render(UPDATE_CONTENT)
         }}></div>
       </Modal>}
+      <Modal
+        title="分享简历（只读）"
+        visible={isShareVisible}
+        onCancel={() => setIsShareVisible(false)}
+        footer={null}
+      >
+        <p>打开以下链接即可只读查看当前简历，无法编辑：</p>
+        <Input.TextArea value={shareLink} autoSize readOnly />
+        <div style={{ marginTop: 12, textAlign: 'right' }}>
+          <span
+            className="btn btn-normal"
+            onClick={() => {
+              copyText(shareLink, () => {
+                message.success('链接已复制');
+              });
+            }}
+          >
+            复制链接
+          </span>
+        </div>
+      </Modal>
       {isExportVisible && (
         <Modal
           title="导出确认"
